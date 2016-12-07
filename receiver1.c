@@ -14,7 +14,7 @@
 #include <time.h>//
 #include <signal.h>
 #define MAXLINE 4096
-#define BUFFSIZE 81923
+#define BUFFSIZE 1500
 #define TOKEN_DELIMITERS " \n"
 #define SERV_PORT 7070
 void err_sys(const char* x)
@@ -27,55 +27,53 @@ void dg_echo(int sockfd, struct sockaddr *pcliaddr, socklen_t clilen)
 {
 	int			n;
 	socklen_t	len;
-	//char		mesg[MAXLINE];
-
-	signal(SIGALRM, sig_alrm);
-	siginterrupt(SIGALRM,1);
-//create file	
-	char str[20],buf[BUFFSIZE];
-	strcpy(str, "output.txt");
-
 	FILE *fp;
-	fp=fopen(str,"w");
-	if(!fp)printf("file open fail\n");
-	int j;
-	int fd=fileno(fp);
-	char size[25],chr;
-	int p;
-	printf("keep\n");
-	/*for(p=0;p<25;p++)
+	fp=fopen("output.txt","w");
+	char		mesg[BUFFSIZE];
+	int 		checknum=0,final=0;
+int finish=0;
+	for ( ;!finish ; ) 
 	{
-		recvfrom(sockfd, (char*)&chr, 1, 0, pcliaddr, &len);
-		if(chr=='s')
-			break;
-		size[p]=chr;
-	}size[p]='\0';
-	printf("%s\n",size );
-	int big;
-	big=atoi(size);*/
-
-
-	for ( ; ; ) {
-		alarm(5);
 		len = clilen;
-		if ( (n = recvfrom(sockfd, buf, BUFFSIZE, 0, pcliaddr, &len)) < 0) {
-			if (errno == EINTR)
-				fprintf(stderr, "socket timeout\n");
-			else
-				err_sys("recvfrom error");
-		} else {
-			alarm(0);
-			//mesg[n] = 0;	/* null terminate */
-			//fputs(mesg, stdout);
-			printf("get it%d\n",n);
-			j=j+n;
-			write(fd,buf,n);
-			
+		n = recvfrom(sockfd, mesg, BUFFSIZE, 0, pcliaddr, &len);
+		char count[5];
+		strncpy(count,mesg,4);
+		if(checknum >= atoi(count) )
+		{//correct checknum
+			if(checknum == atoi(count))
+			{
+				fwrite( &mesg[4] , 1 , n-4 , fp);
+				checknum++;
+			}
+			sendto(sockfd, mesg, n, 0, pcliaddr, len);
 		}
-		if(n==0)break;
-		//n = recvfrom(sockfd, mesg, MAXLINE, 0, pcliaddr, &len);
-
-	}
+		else if(atoi(count)==9999)
+		{
+			signal(SIGALRM, sig_alrm);
+			siginterrupt(SIGALRM,1);
+			for(;!finish;)
+			{
+				if(final==0)
+				{
+					fwrite( &mesg[4] , 1 , n-4 , fp);
+					final = 1;				
+				}
+				sendto(sockfd, mesg, n, 0, pcliaddr, len);//ack
+				alarm(10);
+				if((n = recvfrom(sockfd, mesg, BUFFSIZE, 0, pcliaddr, &len))<0)
+				{
+					if (errno == EINTR)
+					{//timeout
+				// no data send by sender,the end
+						finish=1; 
+					}
+					else
+						err_sys("recvfrom error");
+				}				
+			}//for			
+		}//checknum
+		
+	}//for
 	fclose(fp);
 }
 static void sig_alrm(int signo)
@@ -99,7 +97,6 @@ int main(int argc, char **argv)
 	if(bind(sockfd,(struct sockaddr *)&servaddr,sizeof(servaddr))<0)
 		err_sys("bind error");
 
-	
 	dg_echo(sockfd, (struct sockaddr *) &cliaddr, sizeof(cliaddr));
 	close(sockfd);
 }
