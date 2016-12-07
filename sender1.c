@@ -14,7 +14,7 @@
 #include <time.h>//
 #include <signal.h>
 #define MAXLINE 4096
-#define BUFFSIZE 81923
+#define BUFFSIZE 1500
 #define TOKEN_DELIMITERS " \n"
 #define SERV_PORT 7070
 
@@ -24,41 +24,80 @@ void err_sys(const char* x)
 	exit(-1);
 }
 
-
+static void sig_alrm(int);
 void dg_cli(char *str, int sockfd, const struct sockaddr *pservaddr, socklen_t servlen)
 {
-	int	n;
-	char	buf[BUFFSIZE];
+	
 //read the file
 	FILE *fp;
-	fp=fopen(str,"r+");
-	if(!fp)printf("file open fail\n");
-	struct stat st;//file size
-	stat(str, &st);
-	//printf("%s\n",str );
-	//char size[25];
-	//sprintf(size,"%llds",st.st_size);//the size
-	//sendto(sockfd, size, strlen(size), 0, pservaddr, servlen);
-	int fd;
-	fd=fileno(fp);
-	int j;
+	fp=fopen(str,"r+");//if(!fp)printf("file open fail\n");
+		
+//set the signal
+	signal(SIGALRM, sig_alrm);
+	siginterrupt(SIGALRM,1);
 	
-	for(j=0;j<st.st_size;)
+	int fd,j,n;
+	fd=fileno(fp);
+	
+int checknum=0,ack=1,final=0;	
+	for(;;)
 	{
-		int num;
-		num=read(fd,buf,BUFFSIZE);
-		j=j+num;printf("send%d\n",num);
-		sendto(sockfd, buf, num, 0, pservaddr, servlen);
-	}
-	fclose(fp);//close the file
-	/*while (fgets(sendline, MAXLINE, fp) != NULL) {
+		if(final == 1 && ack == 1)
+			break;
 
-		sendto(sockfd, sendline, strlen(sendline), 0, pservaddr, servlen);
-	}*/
+		char ww[5];//change the j
+		char	buf[BUFFSIZE],rec[BUFFSIZE];
+		int num;
+		if(ack==1)//receive the ack & read the new file & make the buffer
+		{
+			num=fread(&buf[4],sizeof(char),BUFFSIZE-4,fp);	
+			if(feof(fp))
+			{//the end of file num<BUFFSIZE-4)
+				checknum=9999;	
+				final=1;
+			}	
+			sprintf(ww,"%04d",checknum);
+			strncpy(buf,ww,4);//buf[0~3]checknum
+			ack=0;
+		}	
+		
+		sendto(sockfd, buf, num+4, 0, pservaddr, servlen);
+
+		alarm(5);
+		
+		if ( (n = recvfrom(sockfd, rec, BUFFSIZE, 0, NULL, NULL)) < 0) 
+		{
+			if (errno == EINTR)
+			{//timeout
+				//fprintf(stderr, "socket timeout\n");
+				ack=0;// resend the buf
+			}
+			else
+				err_sys("recvfrom error");
+		} 
+		else 
+		{//receive the ack
+			alarm(0);
+			//check the checknum buf[0~3]
+			char count[5];
+			strncpy(count,rec,4);
+			if(checknum == atoi(count))
+			{
+				ack = 1;//correct checknum
+				if(final == 0)
+					checknum++;
+
+			}		
+		}//recv end		
+
+	}//for end
+	fclose(fp);//close the file	
 }
 
-
-
+static void sig_alrm(int signo)
+{
+	return;			/* just interrupt the recvfrom() */
+}
 
 
 int main(int argc, char **argv)
